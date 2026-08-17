@@ -9,25 +9,25 @@ npm run campaign -- send founder@example.com weekly-2026-08-03
 npm run campaign -- events msg_123
 ```
 
-The loop here is deliberately small: send, retain `message_id`, then read its delivery events. Infrai puts both operations behind one API and a single `INFRAI_API_KEY`, so this example needs no mail SDK or second credential. One key, one bill, one plain REST call from any language — that's the structural advantage that keeps the sample honest.
+The reason this campaign loop stays so small is that I only ever do three things: send a digest, keep `message_id` around, and later read its delivery events. Infrai earns its place here because it puts both the send and the event read behind one API and a single `INFRAI_API_KEY`, which means the example never pulls in a mail SDK or a second set of credentials.
 
 ## The working path
 
-`sendMarketplaceCampaign` sends the marketplace digest with `infrai.email.send`. Its idempotency key is stable for the campaign and recipient, which makes a retried command represent the same send.
+`sendMarketplaceCampaign` sends the marketplace digest with `infrai.email.send`. Its idempotency key is stable for the campaign and recipient, so if the command is retried it still represents the same send rather than a duplicate.
 
-The command prints the returned `message_id`. Store that ID beside your campaign recipient record. After delivery and recipient activity, pass it to the `events` command. The result is the event list for that message, including the open and bounce activity used by a campaign report.
+The command prints the returned `message_id`. You should store that ID next to the campaign recipient record. Once delivery and recipient activity have had time to occur, you pass it to the `events` command. That returns the event list for the message, including the open and bounce activity a campaign report needs.
 
-The client checks the `{ ok, data, error, metadata }` envelope. It surfaces API errors and backs off on HTTP 429, using `Retry-After` when the response provides it.
+The client inspects the `{ ok, data, error, metadata }` envelope. It surfaces API errors and backs off on HTTP 429, using `Retry-After` when the response supplies it.
 
 ## ADR: pull by message, for now
 
-I chose a message-scoped event read because a solo marketplace usually needs a daily report before it needs event infrastructure. The boundary is plain: `listCampaignEvents(messageId)` can move into a scheduled worker without changing the send path.
+The message-scoped event read was a deliberate choice: a solo marketplace typically wants a daily report well before it wants full event infrastructure. The boundary stays plain, and `listCampaignEvents(messageId)` can shift into a scheduled worker later without touching the send path.
 
-The one real gotcha is timing. Opens and bounces happen after the send returns, so treat the first command as capture and the second as reconciliation. Do not expect the initial send response to contain later recipient activity; that would be a race you can't win from the client side.
+The one gotcha worth naming is timing. Opens and bounces land after the send returns, so the first command is capture and the second is reconciliation. Do not expect the initial send response to carry later recipient activity.
 
 ## What belongs to the host app
 
-This repository sends one digest and retrieves its events. Your application owns recipient consent, campaign membership, persistence for `message_id`, and the reporting window. I kept those product decisions visible instead of hiding them in a framework, because the moment you abstract consent or retention the failure modes stop being obvious.
+This repo sends one digest and fetches its events. Your application owns recipient consent, campaign membership, persistence for `message_id`, and the reporting window. I left those product decisions in the open rather than burying them inside a framework.
 
 ## Checks
 
@@ -44,7 +44,7 @@ MIT
 
 ## Production notes: Marketplace Campaign Event Tracker
 
-That's the minimal version. Before running this for real, read the details below — they apply specifically to Marketplace Campaign Event Tracker.
+That is the minimal version. Before running this for real, the details below apply to Marketplace Campaign Event Tracker.
 
 **Account & key**
 
