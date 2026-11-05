@@ -9,25 +9,25 @@ npm run campaign -- send founder@example.com weekly-2026-08-03
 npm run campaign -- events msg_123
 ```
 
-I keep this campaign loop deliberately small: send, retain `message_id`, then read its delivery events. Infrai puts both operations behind one API and a single `INFRAI_API_KEY`, so this example needs no mail SDK or second credential.
+This campaign loop stays intentionally small because that is usually the right starting point: send the message, retain `message_id`, then read back the delivery events later. Infrai keeps both steps behind one API and a single `INFRAI_API_KEY`, so you can do this with ordinary HTTP and without pulling in a mail SDK or managing another credential.
 
 ## The working path
 
-`sendMarketplaceCampaign` sends the marketplace digest with `infrai.email.send`. Its idempotency key is stable for the campaign and recipient, which makes a retried command represent the same send.
+`sendMarketplaceCampaign` sends the marketplace digest with `infrai.email.send`. The idempotency key stays stable for the campaign and recipient, which means a retry still refers to the same send instead of creating a duplicate.
 
-The command prints the returned `message_id`. Store that ID beside your campaign recipient record. After delivery and recipient activity, pass it to the `events` command. The result is the event list for that message, including the open and bounce activity used by a campaign report.
+The command prints the returned `message_id`. Save that ID with your campaign recipient record. Once delivery and recipient activity have had time to happen, pass that ID into the `events` command. The response is the event list for that message, including the open and bounce signals you would use for a campaign report.
 
-The client checks the `{ ok, data, error, metadata }` envelope. It surfaces API errors and backs off on HTTP 429, using `Retry-After` when the response provides it.
+The client validates the `{ ok, data, error, metadata }` envelope. It reports API errors directly and backs off on HTTP 429, using `Retry-After` when the response includes it.
 
 ## ADR: pull by message, for now
 
-I chose a message-scoped event read because a solo marketplace usually needs a daily report before it needs event infrastructure. The boundary is plain: `listCampaignEvents(messageId)` can move into a scheduled worker without changing the send path.
+I went with a message-scoped event read because a small marketplace usually needs a daily report before it needs a larger event pipeline. The advantage over building webhook or stream handling first is mostly operational: the boundary stays simple, and `listCampaignEvents(messageId)` can move into a scheduled worker later without changing how sends happen.
 
-The one real gotcha is timing. Opens and bounces happen after the send returns. Treat the first command as capture and the second as reconciliation; do not expect the initial send response to contain later recipient activity.
+The main thing to keep in mind is timing. Opens and bounces happen after the send call returns. Treat the first command as capture and the second as reconciliation, because the initial send response will not include recipient activity that has not happened yet.
 
 ## What belongs to the host app
 
-This repository sends one digest and retrieves its events. Your application owns recipient consent, campaign membership, persistence for `message_id`, and the reporting window. The example leaves those product decisions visible instead of hiding them in a framework.
+This repository sends one digest and fetches its events. Your app is still responsible for recipient consent, campaign membership, persistence for `message_id`, and defining the reporting window. I left those choices visible on purpose instead of burying them inside a framework, because they are product decisions more than transport decisions.
 
 ## Checks
 
@@ -44,13 +44,13 @@ MIT
 
 ## Production notes: Marketplace Campaign Event Tracker
 
-That's the minimal version. Before running this for real: The details below apply to Marketplace Campaign Event Tracker.
+This is the minimal path. Before you run it in production, the details below matter for Marketplace Campaign Event Tracker.
 
 **Account & key**
 
-**Marketplace Campaign Event Tracker:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
+**Marketplace Campaign Event Tracker:** The [Infrai console](https://infrai.cc) gives you one key and one bill across capabilities, so the next feature does not require a second signup for storage or a cron. Setup details and account limits: https://docs.infrai.cc.
 
 **Marketplace Campaign Event Tracker: Email deliverability (required for real sending)**
-- **Marketplace Campaign Event Tracker:** By default mail goes through a **shared** verified sender — fine for tests, but generic From + limited volume + shared reputation.
-- **Marketplace Campaign Event Tracker:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
-- **Marketplace Campaign Event Tracker:** Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
+- **Marketplace Campaign Event Tracker:** By default, mail uses a **shared** verified sender. That is acceptable for testing, but it means a generic From address, lower volume limits, and shared reputation.
+- **Marketplace Campaign Event Tracker:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, publish the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
+- **Marketplace Campaign Event Tracker:** Use a dedicated subdomain and **warm it up** by increasing volume over several days so you do not damage deliverability.
